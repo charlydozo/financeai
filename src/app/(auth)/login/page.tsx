@@ -16,7 +16,7 @@ export default function LoginPage() {
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    await signIn('email', { email, redirect: false });
+    await signIn('email', { email, callbackUrl: '/dashboard', redirect: false });
     setSent(true);
     setLoading(false);
   };
