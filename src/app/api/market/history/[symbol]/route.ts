@@ -32,31 +32,29 @@ export async function GET(
     }
   }
 
-  // Yahoo Finance pour les données journalières
+  // Finnhub pour les données journalières
   try {
-    const yahooFinance = (await import('yahoo-finance2')).default;
+    const token = process.env.FINNHUB_API_KEY;
+    const lookbackDays: Record<string, number> = { '1d': 90, '1h': 7, '5m': 3 };
+    const to = Math.floor(Date.now() / 1000);
+    const from = to - (lookbackDays[interval] ?? 90) * 86400;
 
-    const period1Map: Record<string, Date> = {
-      '1d': new Date(Date.now() - 90 * 86400_000),
-      '1h': new Date(Date.now() - 7 * 86400_000),
-      '5m': new Date(Date.now() - 3 * 86400_000),
-    };
+    const res = await fetch(
+      `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=D&from=${from}&to=${to}&token=${token}`,
+      { cache: 'no-store' },
+    );
+    const data = await res.json();
 
-    const result = await (yahooFinance as any).historical(symbol, {
-      period1: period1Map[interval] ?? period1Map['1d'],
-      interval: '1d',
-    });
+    if (data.s !== 'ok' || !data.t?.length) throw new Error('no data');
 
-    const candles: Candle[] = (result as any[])
-      .filter((q) => q.open != null && q.high != null && q.low != null && q.close != null)
-      .map((q) => ({
-        time: Math.floor(new Date(q.date).getTime() / 1000),
-        open: q.open,
-        high: q.high,
-        low: q.low,
-        close: q.close,
-        volume: q.volume ?? 0,
-      }));
+    const candles: Candle[] = data.t.map((t: number, i: number) => ({
+      time: t,
+      open: data.o[i],
+      high: data.h[i],
+      low: data.l[i],
+      close: data.c[i],
+      volume: data.v[i] ?? 0,
+    }));
 
     return NextResponse.json({ symbol, interval, candles });
   } catch {

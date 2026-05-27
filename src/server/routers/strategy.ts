@@ -50,13 +50,17 @@ async function executeDCA(
 ): Promise<{ trades: string[]; totalSpent: number }> {
   const config = strategy.config as z.infer<typeof smartplanConfigSchema>;
 
-  // Resolve prices
-  const yf = (await import('yahoo-finance2')).default as any;
+  // Resolve prices via Finnhub
+  const finnhubToken = process.env.FINNHUB_API_KEY;
   const prices: Record<string, number> = {};
   for (const symbol of config.symbols) {
     try {
-      const quote = await yf.quote(symbol);
-      prices[symbol] = quote.regularMarketPrice ?? quote.ask ?? 0;
+      const res = await fetch(
+        `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${finnhubToken}`,
+        { cache: 'no-store' },
+      );
+      const data = await res.json();
+      prices[symbol] = data.c ?? 0;
     } catch {
       prices[symbol] = 0;
     }
@@ -190,18 +194,21 @@ export const strategyRouter = createTRPCRouter({
       const symbols: string[] = config.symbols ?? (config.symbol ? [config.symbol] : []);
       const marketLines: string[] = [];
 
+      const finnhubToken = process.env.FINNHUB_API_KEY;
       for (const symbol of symbols.slice(0, 3)) {
         try {
-          const yf = (await import('yahoo-finance2')).default as any;
-          const hist = await yf.historical(symbol, {
-            period1: new Date(Date.now() - 30 * 86400_000),
-            interval: '1d',
-          });
-          if (hist.length >= 2) {
-            const last = hist.at(-1);
-            const first = hist[0];
-            const pct = (((last.close - first.close) / first.close) * 100).toFixed(2);
-            marketLines.push(`${symbol}: $${last.close.toFixed(2)} (${pct}% sur 30j)`);
+          const to = Math.floor(Date.now() / 1000);
+          const from = to - 30 * 86400;
+          const res = await fetch(
+            `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=D&from=${from}&to=${to}&token=${finnhubToken}`,
+            { cache: 'no-store' },
+          );
+          const data = await res.json();
+          if (data.s === 'ok' && data.c?.length >= 2) {
+            const lastClose: number = data.c.at(-1);
+            const firstClose: number = data.c[0];
+            const pct = (((lastClose - firstClose) / firstClose) * 100).toFixed(2);
+            marketLines.push(`${symbol}: $${lastClose.toFixed(2)} (${pct}% sur 30j)`);
           }
         } catch {
           // ignore

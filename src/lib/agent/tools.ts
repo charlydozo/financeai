@@ -39,10 +39,17 @@ async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
   throw lastErr;
 }
 
-// ─── Yahoo Finance helpers ────────────────────────────────────────────────────
+// ─── Finnhub helpers ──────────────────────────────────────────────────────────
 
-async function getYahoo() {
-  return (await import('yahoo-finance2')).default as any;
+const FINNHUB_BASE = 'https://finnhub.io/api/v1';
+
+async function finnhubGet(path: string): Promise<any> {
+  const token = process.env.FINNHUB_API_KEY;
+  if (!token) throw new Error('FINNHUB_API_KEY non configurée');
+  const sep = path.includes('?') ? '&' : '?';
+  const res = await fetch(`${FINNHUB_BASE}${path}${sep}token=${token}`, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Finnhub ${res.status}: ${path}`);
+  return res.json();
 }
 
 interface Candle {
@@ -59,24 +66,23 @@ async function fetchDailyCandles(symbol: string, days = 365): Promise<Candle[]> 
   const cached = cacheGet<Candle[]>(key);
   if (cached) return cached;
 
-  const raw = await withRetry(async () => {
-    const yf = await getYahoo();
-    return yf.historical(symbol.toUpperCase(), {
-      period1: new Date(Date.now() - days * 86400_000),
-      interval: '1d',
-    });
-  });
+  const to = Math.floor(Date.now() / 1000);
+  const from = to - days * 86400;
 
-  const candles: Candle[] = (raw as any[])
-    .filter((q: any) => q.open != null && q.close != null)
-    .map((q: any) => ({
-      time: Math.floor(new Date(q.date).getTime() / 1000),
-      open: q.open,
-      high: q.high,
-      low: q.low,
-      close: q.close,
-      volume: q.volume ?? 0,
-    }));
+  const data = await withRetry(() =>
+    finnhubGet(`/stock/candle?symbol=${encodeURIComponent(symbol.toUpperCase())}&resolution=D&from=${from}&to=${to}`)
+  );
+
+  if (data.s !== 'ok' || !data.t?.length) throw new Error(`Pas de données Finnhub pour ${symbol}`);
+
+  const candles: Candle[] = data.t.map((t: number, i: number) => ({
+    time: t,
+    open: data.o[i],
+    high: data.h[i],
+    low: data.l[i],
+    close: data.c[i],
+    volume: data.v[i] ?? 0,
+  }));
 
   cacheSet(key, candles, TTL_CANDLES);
   return candles;
@@ -87,13 +93,16 @@ async function fetchQuoteSummary(symbol: string): Promise<any> {
   const cached = cacheGet<any>(key);
   if (cached) return cached;
 
-  const summary = await withRetry(async () => {
-    const yf = await getYahoo();
-    return yf.quoteSummary(symbol.toUpperCase(), {
-      modules: ['price', 'summaryDetail', 'recommendationTrend', 'financialData'],
-    });
-  });
+  const sym = encodeURIComponent(symbol.toUpperCase());
+  const [recommendation, metricRes, quote] = await withRetry(() =>
+    Promise.all([
+      finnhubGet(`/stock/recommendation?symbol=${sym}`),
+      finnhubGet(`/stock/metric?symbol=${sym}&metric=all`),
+      finnhubGet(`/quote?symbol=${sym}`),
+    ])
+  );
 
+  const summary = { recommendation, metric: metricRes?.metric ?? {}, quote };
   cacheSet(key, summary, TTL_SENTIMENT);
   return summary;
 }
@@ -104,9 +113,8 @@ async function getCurrentPrice(symbol: string): Promise<number> {
   if (cached) return cached;
 
   const price = await withRetry(async () => {
-    const yf = await getYahoo();
-    const quote = await yf.quote(symbol.toUpperCase());
-    const p = quote.regularMarketPrice ?? quote.ask ?? quote.bid;
+    const data = await finnhubGet(`/quote?symbol=${encodeURIComponent(symbol.toUpperCase())}`);
+    const p = data.c;
     if (!p) throw new Error(`Prix introuvable pour ${symbol}`);
     return p as number;
   });
@@ -115,7 +123,7 @@ async function getCurrentPrice(symbol: string): Promise<number> {
   return price;
 }
 
-// ─── Données simulées (fallback si Yahoo Finance échoue après 3 tentatives) ──
+// ─── Données simulées (fallback si Finnhub échoue après 3 tentatives) ────────
 
 function mockCandles(symbol: string, days = 200): Candle[] {
   // Seed déterministe basé sur le symbole pour des résultats reproductibles
@@ -151,7 +159,7 @@ function mockCandles(symbol: string, days = 200): Candle[] {
 function mockSentimentData(symbol: string) {
   return {
     symbol: symbol.toUpperCase(),
-    dataSource: 'Données simulées (Yahoo Finance indisponible)',
+    dataSource: 'Données simulées (Finnhub indisponible)',
     simulated: true,
     valuation: {
       pe: null,
@@ -171,7 +179,7 @@ function mockSentimentData(symbol: string) {
       total: 0,
       bullishScore: null,
     },
-    sentiment: 'indisponible — Yahoo Finance rate-limité, données fondamentales non disponibles',
+    sentiment: 'indisponible — Finnhub indisponible, données fondamentales non disponibles',
   };
 }
 
@@ -210,7 +218,7 @@ export const getMarketDataTool = tool(
 
     return JSON.stringify({
       symbol: symbol.toUpperCase(),
-      dataSource: simulated ? 'Données simulées (Yahoo Finance indisponible)' : 'Yahoo Finance',
+      dataSource: simulated ? 'Données simulées (Finnhub indisponible)' : 'Finnhub',
       simulated,
       price: {
         last: last.close,
@@ -259,7 +267,7 @@ export const getMarketDataTool = tool(
   {
     name: 'get_market_data',
     description:
-      'Récupère les données de marché journalières et les indicateurs techniques (RSI, MACD, SMA20/50/200, EMA12/26) via Yahoo Finance avec cache 5 min et retry x3. Retourne des données simulées si Yahoo Finance est indisponible.',
+      'Récupère les données de marché journalières et les indicateurs techniques (RSI, MACD, SMA20/50/200, EMA12/26) via Finnhub avec cache 5 min et retry x3. Retourne des données simulées si Finnhub est indisponible.',
     schema: z.object({
       symbol: z.string().describe('Symbole boursier (ex: AAPL, MSFT, TSLA, BTC-USD)'),
     }),
@@ -271,7 +279,6 @@ export const getMarketDataTool = tool(
 export const analyzeSentimentTool = tool(
   async ({ symbol }) => {
     let summary: any;
-    let simulated = false;
 
     try {
       summary = await fetchQuoteSummary(symbol);
@@ -279,9 +286,8 @@ export const analyzeSentimentTool = tool(
       return JSON.stringify(mockSentimentData(symbol));
     }
 
-    const detail = summary?.summaryDetail;
-    const reco = summary?.recommendationTrend?.trend?.[0];
-    const fin = summary?.financialData;
+    const reco = summary?.recommendation?.[0];
+    const m = summary?.metric ?? {};
 
     const strongBuy = reco?.strongBuy ?? 0;
     const buy = reco?.buy ?? 0;
@@ -294,22 +300,24 @@ export const analyzeSentimentTool = tool(
 
     return JSON.stringify({
       symbol: symbol.toUpperCase(),
-      dataSource: 'Yahoo Finance',
-      simulated,
+      dataSource: 'Finnhub',
+      simulated: false,
       valuation: {
-        pe: detail?.trailingPE?.toFixed(2) ?? null,
-        forwardPE: detail?.forwardPE?.toFixed(2) ?? null,
-        beta: detail?.beta?.toFixed(2) ?? null,
-        fiftyTwoWeekHigh: detail?.fiftyTwoWeekHigh ?? null,
-        fiftyTwoWeekLow: detail?.fiftyTwoWeekLow ?? null,
+        pe: m.peBasicExclExtraTTM?.toFixed(2) ?? null,
+        forwardPE: m.peNormalizedAnnual?.toFixed(2) ?? null,
+        beta: m.beta?.toFixed(2) ?? null,
+        fiftyTwoWeekHigh: m['52WeekHigh'] ?? null,
+        fiftyTwoWeekLow: m['52WeekLow'] ?? null,
       },
       fundamentals: {
-        targetPrice: fin?.targetMeanPrice ?? null,
-        currentRatio: fin?.currentRatio ?? null,
-        revenueGrowth: fin?.revenueGrowth
-          ? `${(fin.revenueGrowth * 100).toFixed(1)}%`
+        targetPrice: m.targetPrice ?? null,
+        currentRatio: m.currentRatioQuarterly?.toFixed(2) ?? null,
+        revenueGrowth: m.revenueGrowthTTMYoy != null
+          ? `${(m.revenueGrowthTTMYoy as number).toFixed(1)}%`
           : null,
-        recommendationKey: fin?.recommendationKey ?? null,
+        recommendationKey: reco
+          ? (bullScore !== null && bullScore >= 60 ? 'buy' : bullScore !== null && bullScore >= 40 ? 'hold' : 'sell')
+          : null,
       },
       analystConsensus: {
         strongBuy, buy, hold, sell, strongSell,
@@ -327,7 +335,7 @@ export const analyzeSentimentTool = tool(
   {
     name: 'analyze_sentiment',
     description:
-      'Analyse le sentiment du marché via Yahoo Finance (cache 5 min, retry x3) : consensus analystes, P/E, beta, cible de prix. Retourne données simulées si indisponible.',
+      'Analyse le sentiment du marché via Finnhub (cache 5 min, retry x3) : consensus analystes, P/E, beta, cible de prix. Retourne données simulées si indisponible.',
     schema: z.object({
       symbol: z.string().describe('Symbole boursier à analyser'),
     }),
@@ -408,7 +416,7 @@ export function createPortfolioTool(userId: string) {
       const totalUnrealizedPL = positions.reduce((s, p) => s + (parseFloat(p.unrealizedPL) || 0), 0);
 
       return JSON.stringify({
-        dataSource: 'Yahoo Finance (prix) + Base de données (trades)',
+        dataSource: 'Finnhub (prix) + Base de données (trades)',
         portfolios: portfolios.map((p) => p.name),
         positions,
         summary: {
@@ -421,7 +429,7 @@ export function createPortfolioTool(userId: string) {
     {
       name: 'get_portfolio_state',
       description:
-        "Récupère les positions ouvertes depuis la base de données et leur P&L via les prix Yahoo Finance (cache 1 min).",
+        "Récupère les positions ouvertes depuis la base de données et leur P&L via les prix Finnhub (cache 1 min).",
       schema: z.object({}),
     },
   );
@@ -486,7 +494,7 @@ export function createExecuteOrderTool(userId: string) {
     {
       name: 'execute_order',
       description:
-        "Enregistre un ordre paper trading en base de données avec le prix Yahoo Finance. IMPORTANT : toujours demander confirmation explicite avant d'appeler ce tool.",
+        "Enregistre un ordre paper trading en base de données avec le prix Finnhub. IMPORTANT : toujours demander confirmation explicite avant d'appeler ce tool.",
       schema: z.object({
         symbol: z.string().describe('Symbole boursier'),
         qty: z.number().positive().describe('Quantité de titres'),
