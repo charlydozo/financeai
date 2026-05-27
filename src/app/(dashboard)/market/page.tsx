@@ -8,15 +8,10 @@ import { OrderForm } from '@/components/market/OrderForm';
 import { LivePriceBar } from '@/components/market/LivePriceBar';
 import { SymbolSearch } from '@/components/market/SymbolSearch';
 
-type Interval = '1d' | '1h' | '5m';
-
-const INTERVAL_LABELS: Record<Interval, string> = { '5m': '5 min', '1h': '1 h', '1d': '1 jour' };
-
 type RightTab = 'orderbook' | 'order';
 
 export default function MarketPage() {
   const [symbol, setSymbol] = useState('AAPL');
-  const [interval, setInterval] = useState<Interval>('1d');
   const [rightTab, setRightTab] = useState<RightTab>('orderbook');
 
   const { quote, connected } = useMarketStream(symbol);
@@ -31,39 +26,14 @@ export default function MarketPage() {
         {/* ── Colonne gauche : sélecteur + chart ─────────────────────── */}
         <div className="flex-1 flex flex-col min-w-0 border-r border-gray-800">
           {/* Toolbar */}
-          <div className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800 bg-gray-950 flex-wrap">
-            {/* Recherche de symbole */}
+          <div className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800 bg-gray-950">
             <SymbolSearch value={symbol} onChange={setSymbol} />
-
-            {/* Séparateur */}
-            <div className="h-5 w-px bg-gray-800" />
-
-            {/* Intervalles */}
-            <div className="flex gap-1">
-              {(Object.entries(INTERVAL_LABELS) as [Interval, string][]).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setInterval(key)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    interval === key
-                      ? 'bg-brand-500/10 text-brand-400 border border-brand-500/30'
-                      : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
           </div>
 
           {/* Chart */}
           <div className="flex-1 p-3 min-h-0">
             <div className="w-full h-full bg-gray-900 rounded-xl overflow-hidden">
-              <TradingChart
-                symbol={symbol}
-                interval={interval}
-                livePrice={lastPrice}
-              />
+              <TradingChart symbol={symbol} />
             </div>
           </div>
         </div>
