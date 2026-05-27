@@ -5,7 +5,6 @@ import { useMarketStream } from '@/hooks/useMarketStream';
 import { TradingChart } from '@/components/market/TradingChart';
 import { OrderBook } from '@/components/market/OrderBook';
 import { OrderForm } from '@/components/market/OrderForm';
-import { LivePriceBar } from '@/components/market/LivePriceBar';
 import { SymbolSearch } from '@/components/market/SymbolSearch';
 
 type RightTab = 'orderbook' | 'order';
@@ -14,14 +13,11 @@ export default function MarketPage() {
   const [symbol, setSymbol] = useState('AAPL');
   const [rightTab, setRightTab] = useState<RightTab>('orderbook');
 
-  const { quote, connected } = useMarketStream(symbol);
+  const { quote } = useMarketStream(symbol);
   const lastPrice = quote?.lp ?? quote?.bp;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Barre de prix live */}
-      <LivePriceBar symbol={symbol} quote={quote} connected={connected} />
-
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* ── Colonne gauche : sélecteur + chart ─────────────────────── */}
         <div className="flex-1 flex flex-col min-w-0 border-r border-gray-800">
