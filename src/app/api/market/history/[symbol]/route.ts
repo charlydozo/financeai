@@ -11,6 +11,9 @@ interface Candle {
   volume: number;
 }
 
+const RESOLUTION: Record<Interval, string> = { '1d': 'D', '1h': '60', '5m': '5' };
+const LOOKBACK_DAYS: Record<Interval, number> = { '1d': 90, '1h': 7, '5m': 3 };
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { symbol: string } },
@@ -18,29 +21,14 @@ export async function GET(
   const symbol = params.symbol.toUpperCase();
   const interval = (req.nextUrl.searchParams.get('interval') ?? '1d') as Interval;
 
-  // Alpaca bars pour intraday (plus fiable que Yahoo Finance pour 1h/5m)
-  const alpacaConfigured =
-    (process.env.ALPACA_API_KEY?.length ?? 0) > 10 &&
-    !process.env.ALPACA_API_KEY?.startsWith('your_');
-
-  if (interval !== '1d' && alpacaConfigured) {
-    try {
-      const candles = await fetchAlpacaBars(symbol, interval);
-      return NextResponse.json({ symbol, interval, candles });
-    } catch {
-      return NextResponse.json({ symbol, interval, candles: mockCandles(interval) });
-    }
-  }
-
-  // Finnhub pour les données journalières
   try {
     const token = process.env.FINNHUB_API_KEY;
-    const lookbackDays: Record<string, number> = { '1d': 90, '1h': 7, '5m': 3 };
     const to = Math.floor(Date.now() / 1000);
-    const from = to - (lookbackDays[interval] ?? 90) * 86400;
+    const from = to - LOOKBACK_DAYS[interval] * 86400;
+    const resolution = RESOLUTION[interval];
 
     const res = await fetch(
-      `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=D&from=${from}&to=${to}&token=${token}`,
+      `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=${resolution}&from=${from}&to=${to}&token=${token}`,
       { cache: 'no-store' },
     );
     const data = await res.json();
@@ -60,34 +48,6 @@ export async function GET(
   } catch {
     return NextResponse.json({ symbol, interval, candles: mockCandles(interval) });
   }
-}
-
-async function fetchAlpacaBars(symbol: string, interval: Interval): Promise<Candle[]> {
-  const timeframeMap: Record<string, string> = { '1h': '1Hour', '5m': '5Min' };
-  const startMap: Record<string, string> = {
-    '1h': new Date(Date.now() - 7 * 86400_000).toISOString(),
-    '5m': new Date(Date.now() - 3 * 86400_000).toISOString(),
-  };
-
-  const url = `https://data.alpaca.markets/v2/stocks/${symbol}/bars?timeframe=${timeframeMap[interval]}&start=${startMap[interval]}&limit=1000&feed=iex`;
-  const res = await fetch(url, {
-    headers: {
-      'APCA-API-KEY-ID': process.env.ALPACA_API_KEY!,
-      'APCA-API-SECRET-KEY': process.env.ALPACA_API_SECRET!,
-    },
-  });
-
-  if (!res.ok) throw new Error(`Alpaca bars ${res.status}`);
-  const data = await res.json();
-
-  return (data.bars ?? []).map((b: any) => ({
-    time: Math.floor(new Date(b.t).getTime() / 1000),
-    open: b.o,
-    high: b.h,
-    low: b.l,
-    close: b.c,
-    volume: b.v,
-  }));
 }
 
 function mockCandles(interval: Interval): Candle[] {
