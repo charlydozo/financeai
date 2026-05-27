@@ -5,8 +5,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  serverExternalPackages: ['yahoo-finance2'],
-  turbopack: {},
+  serverExternalPackages: ['yahoo-finance2', 'nodemailer'],
   webpack: (config, { isServer, webpack }) => {
     if (isServer) {
       const stub = path.join(__dirname, 'src/stubs/empty.js');
