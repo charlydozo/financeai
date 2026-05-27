@@ -5,14 +5,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    serverComponentsExternalPackages: ['yahoo-finance2'],
-  },
+  serverExternalPackages: ['yahoo-finance2'],
+  turbopack: {},
   webpack: (config, { isServer, webpack }) => {
     if (isServer) {
-      // yahoo-finance2 importe des utilitaires Deno/test dans son code de production.
-      // NormalModuleReplacementPlugin intercepte TOUS les sous-chemins de ces packages
-      // (ex: @gadicc/fetch-mock-cache/stores/fs.ts) et les redirige vers un stub vide.
       const stub = path.join(__dirname, 'src/stubs/empty.js');
       config.plugins.push(
         new webpack.NormalModuleReplacementPlugin(/^@std\/testing/, stub),
