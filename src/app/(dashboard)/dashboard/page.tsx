@@ -162,10 +162,7 @@ export default async function DashboardPage() {
   const dateStr = rawDate.charAt(0).toUpperCase() + rawDate.slice(1);
 
   const recentTrades = allTrades.slice(0, 8);
-  const firstName =
-    dbUser?.name?.split(' ')[0] ??
-    dbUser?.email?.split('@')[0] ??
-    'vous';
+  const firstName = dbUser?.name?.split(' ')[0] ?? '';
 
   return (
     <div className="min-h-full p-6 space-y-5" style={{ background: '#EEF4FA' }}>
@@ -173,7 +170,7 @@ export default async function DashboardPage() {
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div>
         <h1 className="text-2xl font-bold" style={{ color: '#0F172A' }}>
-          Bonjour, {firstName}
+          Bonjour{firstName ? `, ${firstName}` : ','}
         </h1>
         <p className="text-sm mt-0.5" style={{ color: '#7a9bbf' }}>
           Voici l&apos;aperçu de votre portefeuille

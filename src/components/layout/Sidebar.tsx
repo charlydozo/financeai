@@ -12,6 +12,7 @@ import {
   Bot,
   Lock,
   Crown,
+  UserCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -21,6 +22,7 @@ const navItems = [
   { label: 'Portefeuille', href: '/portfolio', icon: Briefcase, proOnly: false },
   { label: 'Stratégies', href: '/strategies', icon: Brain, proOnly: true },
   { label: 'Agent IA', href: '/agent', icon: Bot, proOnly: true },
+  { label: 'Profil', href: '/profil', icon: UserCircle, proOnly: false },
 ];
 
 export function Sidebar() {
