@@ -1,12 +1,12 @@
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import Image from 'next/image';
 import Link from 'next/link';
-import { Bell, TrendingUp, TrendingDown, AlertTriangle, Clock, ArrowUpRight } from 'lucide-react';
-import type { Metadata, NextPage } from 'next';
+import { TrendingUp, TrendingDown, AlertTriangle, Clock, ArrowUpRight, X } from 'lucide-react';
+import type { Metadata } from 'next';
 import type { CSSProperties } from 'react';
 import { WatchlistCard } from './WatchlistCard';
+import { deleteAlert } from './actions';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 
@@ -79,7 +79,7 @@ export default async function DashboardPage() {
   const userId = session!.user.id;
 
   // 1. DB queries
-  const [allTrades, activeAlerts] = await Promise.all([
+  const [allTrades, activeAlerts, dbUser] = await Promise.all([
     prisma.trade.findMany({
       where: { portfolio: { userId } },
       include: { portfolio: { select: { name: true } } },
@@ -89,6 +89,10 @@ export default async function DashboardPage() {
       where: { userId, active: true },
       orderBy: { createdAt: 'desc' },
       take: 5,
+    }),
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, email: true },
     }),
   ]);
 
@@ -158,53 +162,25 @@ export default async function DashboardPage() {
   const dateStr = rawDate.charAt(0).toUpperCase() + rawDate.slice(1);
 
   const recentTrades = allTrades.slice(0, 8);
-  const firstName = session?.user?.name?.split(' ')[0] ?? '';
+  const firstName =
+    dbUser?.name?.split(' ')[0] ??
+    dbUser?.email?.split('@')[0] ??
+    'vous';
 
   return (
     <div className="min-h-full p-6 space-y-5" style={{ background: '#EEF4FA' }}>
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold" style={{ color: '#0F172A' }}>
-            Bonjour, {firstName} 👋
-          </h1>
-          <p className="text-sm mt-0.5" style={{ color: '#7a9bbf' }}>
-            Voici l&apos;aperçu de votre portefeuille
-          </p>
-          <p className="text-xs mt-1 font-medium capitalize" style={{ color: '#7a9bbf' }}>
-            {dateStr}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2.5">
-          <div
-            className="w-9 h-9 rounded-full flex items-center justify-center"
-            style={{
-              background: 'rgba(255,255,255,0.62)',
-              border: '0.5px solid rgba(255,255,255,0.9)',
-              boxShadow: '0 1px 3px rgba(2,85,159,0.08)',
-            }}
-          >
-            <Bell className="w-4 h-4" style={{ color: '#02559F' }} />
-          </div>
-          {session?.user?.image ? (
-            <Image
-              src={session.user.image}
-              alt="avatar"
-              width={36}
-              height={36}
-              className="rounded-full object-cover ring-2 ring-white/80"
-            />
-          ) : (
-            <div
-              className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white"
-              style={{ background: '#02559F' }}
-            >
-              {session?.user?.name?.charAt(0)?.toUpperCase() ?? '?'}
-            </div>
-          )}
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold" style={{ color: '#0F172A' }}>
+          Bonjour, {firstName}
+        </h1>
+        <p className="text-sm mt-0.5" style={{ color: '#7a9bbf' }}>
+          Voici l&apos;aperçu de votre portefeuille
+        </p>
+        <p className="text-xs mt-1 font-medium capitalize" style={{ color: '#7a9bbf' }}>
+          {dateStr}
+        </p>
       </div>
 
       {/* ── Hero card ────────────────────────────────────────────────────────── */}
@@ -397,6 +373,16 @@ export default async function DashboardPage() {
                       {alert.action}
                     </p>
                   </div>
+                  <form action={deleteAlert}>
+                    <input type="hidden" name="alertId" value={alert.id} />
+                    <button
+                      type="submit"
+                      className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center hover:bg-red-50 transition-colors mt-0.5"
+                      title="Supprimer l'alerte"
+                    >
+                      <X className="w-3 h-3" style={{ color: '#7a9bbf' }} />
+                    </button>
+                  </form>
                 </div>
               ))}
             </div>
