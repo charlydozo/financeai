@@ -9,6 +9,12 @@ const ThemeContext = createContext<{ theme: Theme; toggle: () => void }>({
   toggle: () => {},
 });
 
+function applyTheme(theme: Theme) {
+  const d = document.documentElement;
+  d.setAttribute('data-theme', theme);
+  d.classList.toggle('dark', theme === 'dark');
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>('dark');
 
@@ -16,14 +22,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const stored = localStorage.getItem('dozanta-theme') as Theme | null;
     const initial = stored ?? 'dark';
     setTheme(initial);
-    document.documentElement.classList.toggle('dark', initial === 'dark');
+    applyTheme(initial);
   }, []);
 
   const toggle = () => {
     setTheme((prev) => {
       const next = prev === 'dark' ? 'light' : 'dark';
       localStorage.setItem('dozanta-theme', next);
-      document.documentElement.classList.toggle('dark', next === 'dark');
+      applyTheme(next);
       return next;
     });
   };
