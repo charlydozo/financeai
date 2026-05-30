@@ -3,13 +3,14 @@
 import { useEffect, useRef } from 'react';
 import {
   Chart,
+  BarController,
   BarElement,
   CategoryScale,
   LinearScale,
   Tooltip,
 } from 'chart.js';
 
-Chart.register(BarElement, CategoryScale, LinearScale, Tooltip);
+Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip);
 
 interface Props {
   labels: string[];
