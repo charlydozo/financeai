@@ -4,26 +4,81 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import Image from 'next/image';
-import {
-  LayoutDashboard,
-  TrendingUp,
-  Briefcase,
-  Brain,
-  Bot,
-  Lock,
-  Crown,
-  UserCircle,
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
 
-const navItems = [
-  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, proOnly: false },
-  { label: 'Marché', href: '/market', icon: TrendingUp, proOnly: false },
-  { label: 'Portefeuille', href: '/portfolio', icon: Briefcase, proOnly: false },
-  { label: 'Stratégies', href: '/strategies', icon: Brain, proOnly: true },
-  { label: 'Agent IA', href: '/agent', icon: Bot, proOnly: true },
-  { label: 'Profil', href: '/profil', icon: UserCircle, proOnly: false },
+const mainNav = [
+  { label: 'Dashboard',    href: '/dashboard',  icon: 'layout-dashboard', proOnly: false },
+  { label: 'Marché',       href: '/market',     icon: 'trending-up',      proOnly: false },
+  { label: 'Portefeuille', href: '/portfolio',  icon: 'briefcase',        proOnly: false },
+  { label: 'Stratégies',   href: '/strategies', icon: 'brain',            proOnly: true  },
+  { label: 'Agent IA',     href: '/agent',      icon: 'robot',            proOnly: true  },
 ];
+
+const bottomNav = [
+  { label: 'Profil', href: '/profil', icon: 'user-circle', proOnly: false },
+];
+
+function NavLink({
+  href,
+  icon,
+  label,
+  active,
+  locked,
+}: {
+  href: string;
+  icon: string;
+  label: string;
+  active: boolean;
+  locked: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className="nav-item"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 40,
+        height: 40,
+        borderRadius: 10,
+        textDecoration: 'none',
+        background: active ? 'var(--accent-dim)' : 'transparent',
+        color: active ? 'var(--accent)' : 'var(--text-3)',
+        transition: 'background 0.15s, color 0.15s',
+        position: 'relative',
+      }}
+      onMouseEnter={(e) => {
+        if (!active) {
+          const el = e.currentTarget as HTMLElement;
+          el.style.background = 'var(--border)';
+          el.style.color = 'var(--text-2)';
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!active) {
+          const el = e.currentTarget as HTMLElement;
+          el.style.background = 'transparent';
+          el.style.color = 'var(--text-3)';
+        }
+      }}
+    >
+      <i className={`ti ti-${icon}`} style={{ fontSize: 20 }} />
+      {locked && (
+        <i
+          className="ti ti-lock"
+          style={{
+            position: 'absolute',
+            bottom: 5,
+            right: 5,
+            fontSize: 9,
+            color: 'var(--text-3)',
+          }}
+        />
+      )}
+      <span className="nav-tooltip">{label}</span>
+    </Link>
+  );
+}
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -31,81 +86,90 @@ export function Sidebar() {
   const isPro = session?.user?.subscriptionPlan === 'PRO';
 
   return (
-    <aside className="w-64 flex-shrink-0 bg-gray-950 border-r border-gray-800 flex flex-col">
+    <aside
+      style={{
+        width: 60,
+        flexShrink: 0,
+        background: 'var(--surface)',
+        borderRight: '1px solid var(--border)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        zIndex: 50,
+      }}
+    >
       {/* Logo */}
-      <div className="p-6 border-b border-gray-800">
-        <Link href="/dashboard" className="flex items-center gap-2.5">
-          <Image src="/logo.png" alt="Dozanta" width={32} height={32} className="rounded-lg object-contain" />
-          <span className="text-white font-bold text-lg tracking-tight">Dozanta</span>
-        </Link>
-      </div>
+      <Link
+        href="/dashboard"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '100%',
+          height: 56,
+          borderBottom: '1px solid var(--border)',
+          flexShrink: 0,
+        }}
+      >
+        <Image
+          src="/logo.png"
+          alt="Dozanta"
+          width={28}
+          height={28}
+          style={{ borderRadius: 8, objectFit: 'contain' }}
+        />
+      </Link>
 
-      {/* Navigation */}
-      <nav className="flex-1 p-3 space-y-0.5">
-        {navItems.map((item) => {
+      {/* Main nav */}
+      <nav
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 4,
+          paddingTop: 10,
+        }}
+      >
+        {mainNav.map((item) => {
           const locked = item.proOnly && !isPro;
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-
-          if (locked) {
-            return (
-              <Link
-                key={item.href}
-                href="/upgrade"
-                className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-gray-500 hover:bg-gray-900 hover:text-gray-400 transition-colors group"
-              >
-                <item.icon className="w-4 h-4 flex-shrink-0" />
-                <span className="text-sm font-medium flex-1">{item.label}</span>
-                <Lock className="w-3 h-3 opacity-60" />
-              </Link>
-            );
-          }
-
           return (
-            <Link
+            <NavLink
               key={item.href}
-              href={item.href}
-              className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm font-medium',
-                active
-                  ? 'bg-brand-500/10 text-brand-400'
-                  : 'text-gray-400 hover:bg-gray-900 hover:text-white',
-              )}
-            >
-              <item.icon className="w-4 h-4 flex-shrink-0" />
-              {item.label}
-            </Link>
+              href={locked ? '/upgrade' : item.href}
+              icon={item.icon}
+              label={item.label}
+              active={active}
+              locked={locked}
+            />
           );
         })}
       </nav>
 
-      {/* CTA upgrade pour les comptes FREE */}
-      {!isPro && (
-        <div className="p-4 border-t border-gray-800">
-          <Link
-            href="/upgrade"
-            className="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-brand-500/10 to-brand-400/10 border border-brand-500/20 rounded-xl hover:border-brand-500/40 transition-all"
-          >
-            <Crown className="w-4 h-4 text-amber-400 flex-shrink-0" />
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-brand-400">Passer à PRO</p>
-              <p className="text-xs text-gray-500 truncate">Débloquer toutes les fonctions</p>
-            </div>
-          </Link>
-        </div>
-      )}
-
-      {/* Badge plan actuel */}
-      <div className="px-4 pb-4">
-        <div
-          className={cn(
-            'px-3 py-1.5 rounded-lg text-center text-xs font-semibold',
-            isPro
-              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-              : 'bg-gray-800 text-gray-500',
-          )}
-        >
-          {isPro ? '✦ PRO' : 'Plan Gratuit'}
-        </div>
+      {/* Bottom nav */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 4,
+          paddingBottom: 14,
+        }}
+      >
+        {bottomNav.map((item) => {
+          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          return (
+            <NavLink
+              key={item.href}
+              href={item.href}
+              icon={item.icon}
+              label={item.label}
+              active={active}
+              locked={false}
+            />
+          );
+        })}
       </div>
     </aside>
   );

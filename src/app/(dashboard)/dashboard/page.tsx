@@ -2,32 +2,22 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import Link from 'next/link';
-import { TrendingUp, TrendingDown, AlertTriangle, Clock, ArrowUpRight, X } from 'lucide-react';
 import type { Metadata } from 'next';
-import type { CSSProperties } from 'react';
+import dynamic from 'next/dynamic';
 import { WatchlistCard } from './WatchlistCard';
 import { deleteAlert } from './actions';
 
 export const metadata: Metadata = { title: 'Dashboard' };
 
-// ── Glass styles ──────────────────────────────────────────────────────────────
-
-const GLASS: CSSProperties = {
-  background: 'rgba(255,255,255,0.62)',
-  border: '0.5px solid rgba(255,255,255,0.9)',
-  borderRadius: '20px',
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.8), 0 1px 3px rgba(2,85,159,0.06)',
-};
-
-const HERO: CSSProperties = {
-  background: 'rgba(255,255,255,0.78)',
-  border: '0.5px solid rgba(255,255,255,0.9)',
-  borderRadius: '22px',
-  boxShadow:
-    'inset 0 1px 0 rgba(255,255,255,0.9), 0 4px 24px rgba(2,85,159,0.12), 0 1px 3px rgba(2,85,159,0.08)',
-};
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// Load client-only components with ssr:false to prevent Chart.js / useSession SSR issues
+const BarChartWidget = dynamic(
+  () => import('./BarChartWidget').then((m) => m.BarChartWidget),
+  { ssr: false },
+);
+const FloatingChat = dynamic(
+  () => import('./FloatingChat').then((m) => m.FloatingChat),
+  { ssr: false },
+);
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
@@ -37,48 +27,28 @@ const fmtPct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
 const CONDITION_LABELS: Record<string, string> = {
   price_above: '≥',
   price_below: '≤',
-  rsi_above: 'RSI ≥',
-  rsi_below: 'RSI ≤',
-  volume_spike: 'Vol ×',
+  rsi_above:   'RSI ≥',
+  rsi_below:   'RSI ≤',
+  volume_spike:'Vol ×',
 };
 
-// ── Mini bar chart ────────────────────────────────────────────────────────────
+const CARD: React.CSSProperties = {
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+  borderRadius: 16,
+};
 
-function MiniBarChart({ data }: { data: number[] }) {
-  const max = Math.max(...data, 1);
-  const H = 44;
-  const bw = 8;
-  const gap = 4;
-  const W = data.length * (bw + gap) - gap;
-
-  return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
-      {data.map((v, i) => {
-        const bh = Math.max(3, (v / max) * (H - 4));
-        const isLatest = i === data.length - 1;
-        return (
-          <rect
-            key={i}
-            x={i * (bw + gap)}
-            y={H - bh}
-            width={bw}
-            height={bh}
-            rx={3}
-            fill={isLatest ? '#02559F' : 'rgba(2,85,159,0.18)'}
-          />
-        );
-      })}
-    </svg>
-  );
-}
-
-// ── Page ──────────────────────────────────────────────────────────────────────
+const HERO: React.CSSProperties = {
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+  borderRadius: 20,
+  boxShadow: '0 4px 24px rgba(0,0,0,0.06)',
+};
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
   const userId = session!.user.id;
 
-  // 1. DB queries
   const [allTrades, activeAlerts, dbUser] = await Promise.all([
     prisma.trade.findMany({
       where: { portfolio: { userId } },
@@ -92,11 +62,11 @@ export default async function DashboardPage() {
     }),
     prisma.user.findUnique({
       where: { id: userId },
-      select: { name: true, email: true },
+      select: { name: true },
     }),
   ]);
 
-  // 2. Aggregate open positions
+  // Aggregate open positions
   type PosAgg = { qty: number; totalCost: number };
   const posMap: Record<string, PosAgg> = {};
   for (const t of allTrades) {
@@ -105,11 +75,9 @@ export default async function DashboardPage() {
     posMap[t.symbol].qty += sign * t.quantity;
     posMap[t.symbol].totalCost += sign * t.price * t.quantity;
   }
-  const openEntries = Object.entries(posMap)
-    .filter(([, v]) => v.qty > 0.0001)
-    .slice(0, 8);
+  const openEntries = Object.entries(posMap).filter(([, v]) => v.qty > 0.0001).slice(0, 8);
 
-  // 3. Live prices from Finnhub for open positions
+  // Live prices from Finnhub
   const token = process.env.FINNHUB_API_KEY;
   const priceMap: Record<string, number> = {};
   await Promise.all(
@@ -136,179 +104,125 @@ export default async function DashboardPage() {
     return { symbol, qty, avgEntry, cur, curValue, pl, plPct };
   });
 
-  const totalValue = positions.reduce((s, p) => s + p.curValue, 0);
+  const totalValue    = positions.reduce((s, p) => s + p.curValue, 0);
   const totalInvested = positions.reduce((s, p) => s + p.qty * p.avgEntry, 0);
-  const totalPL = totalValue - totalInvested;
-  const totalPLPct = totalInvested > 0 ? (totalPL / totalInvested) * 100 : 0;
+  const totalPL       = totalValue - totalInvested;
+  const totalPLPct    = totalInvested > 0 ? (totalPL / totalInvested) * 100 : 0;
 
-  // 4. Mini chart: cumulative invested amount at end of each of last 7 months
+  // 7-month bar chart data
   const now = new Date();
-  const barData: number[] = [];
+  const barLabels: string[] = [];
+  const barValues: number[] = [];
   for (let i = 6; i >= 0; i--) {
-    const cutoff = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59, 999);
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    barLabels.push(d.toLocaleDateString('fr-FR', { month: 'short' }));
+    const cutoff = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
     const cumul = allTrades
       .filter((t) => new Date(t.executedAt) <= cutoff)
       .reduce((s, t) => s + (t.type === 'BUY' ? 1 : -1) * t.price * t.quantity, 0);
-    barData.push(Math.max(0, cumul));
+    barValues.push(Math.max(0, cumul));
   }
-
-  // 5. Date
-  const rawDate = now.toLocaleDateString('fr-FR', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-  const dateStr = rawDate.charAt(0).toUpperCase() + rawDate.slice(1);
 
   const recentTrades = allTrades.slice(0, 8);
   const firstName = dbUser?.name?.split(' ')[0] ?? '';
 
   return (
-    <div className="min-h-full p-6 space-y-5" style={{ background: '#EEF4FA' }}>
+    <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20, minHeight: '100%' }}>
 
-      {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <div>
-        <h1 className="text-2xl font-bold" style={{ color: '#0F172A' }}>
-          Bonjour{firstName ? `, ${firstName}` : ','}
-        </h1>
-        <p className="text-sm mt-0.5" style={{ color: '#7a9bbf' }}>
-          Voici l&apos;aperçu de votre portefeuille
-        </p>
-        <p className="text-xs mt-1 font-medium capitalize" style={{ color: '#7a9bbf' }}>
-          {dateStr}
-        </p>
-      </div>
-
-      {/* ── Hero card ────────────────────────────────────────────────────────── */}
-      <div style={HERO} className="p-6">
-        <div className="flex items-start justify-between gap-6 flex-wrap">
-          <div className="flex-1 min-w-0 space-y-4">
-            <p className="text-xs font-bold uppercase tracking-wider" style={{ color: '#7a9bbf' }}>
+      {/* ── Hero card ─────────────────────────────────────────────────────── */}
+      <div style={{ ...HERO, padding: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24, flexWrap: 'wrap' }}>
+          {/* Left */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-3)', fontFamily: 'var(--font-mono)', marginBottom: 8 }}>
               Valeur totale du portefeuille
             </p>
-            <div>
-              <p className="text-4xl font-bold tracking-tight" style={{ color: '#013B72' }}>
-                {totalValue > 0 ? fmt(totalValue) : '—'}
-              </p>
-
-              <div className="flex items-center gap-4 mt-3 flex-wrap">
-                {totalValue > 0 && (
-                  <>
-                    <div className="flex items-center gap-1.5">
-                      {totalPL >= 0 ? (
-                        <TrendingUp className="w-4 h-4" style={{ color: '#16a34a' }} />
-                      ) : (
-                        <TrendingDown className="w-4 h-4" style={{ color: '#E24B4A' }} />
-                      )}
-                      <span
-                        className="text-sm font-semibold"
-                        style={{ color: totalPL >= 0 ? '#16a34a' : '#E24B4A' }}
-                      >
-                        {fmt(totalPL)}
-                      </span>
-                      <span
-                        className="text-xs px-1.5 py-0.5 rounded-md font-semibold"
-                        style={{
-                          background: totalPL >= 0 ? 'rgba(22,163,74,0.1)' : 'rgba(226,75,74,0.1)',
-                          color: totalPL >= 0 ? '#16a34a' : '#E24B4A',
-                        }}
-                      >
-                        {fmtPct(totalPLPct)}
-                      </span>
-                    </div>
-
-                    <div className="h-4 w-px" style={{ background: 'rgba(2,85,159,0.12)' }} />
-                  </>
-                )}
-
-                <div>
-                  <span className="text-xs" style={{ color: '#7a9bbf' }}>Investi </span>
-                  <span className="text-sm font-semibold" style={{ color: '#0F172A' }}>
-                    {totalInvested > 0 ? fmt(totalInvested) : '—'}
-                  </span>
-                </div>
-
-                <div>
-                  <span className="text-xs" style={{ color: '#7a9bbf' }}>Positions ouvertes </span>
-                  <span className="text-sm font-semibold" style={{ color: '#02559F' }}>
-                    {positions.length}
-                  </span>
-                </div>
-              </div>
+            <p style={{ fontSize: 34, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--font-heading)', lineHeight: 1.1, marginBottom: 14 }}>
+              {totalValue > 0 ? fmt(totalValue) : '—'}
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+              {totalValue > 0 && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <i
+                      className={`ti ti-trending-${totalPL >= 0 ? 'up' : 'down'}`}
+                      style={{ fontSize: 15, color: totalPL >= 0 ? 'var(--green)' : 'var(--red)' }}
+                    />
+                    <span style={{ fontSize: 14, fontWeight: 600, color: totalPL >= 0 ? 'var(--green)' : 'var(--red)', fontFamily: 'var(--font-mono)' }}>
+                      {fmt(totalPL)}
+                    </span>
+                    <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, fontWeight: 600, fontFamily: 'var(--font-mono)', background: totalPL >= 0 ? 'rgba(52,199,142,0.12)' : 'rgba(240,85,85,0.12)', color: totalPL >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                      {fmtPct(totalPLPct)}
+                    </span>
+                  </div>
+                  <div style={{ width: 1, height: 16, background: 'var(--border)' }} />
+                </>
+              )}
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                Investi{' '}
+                <strong style={{ color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>
+                  {totalInvested > 0 ? fmt(totalInvested) : '—'}
+                </strong>
+              </span>
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                Positions{' '}
+                <strong style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
+                  {positions.length}
+                </strong>
+              </span>
             </div>
           </div>
 
-          <div className="flex flex-col items-end gap-2 flex-shrink-0">
-            <p className="text-xs font-medium" style={{ color: '#7a9bbf' }}>
-              Investi · 7 derniers mois
+          {/* Right — Chart.js bar chart */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+            <p style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--font-mono)', textAlign: 'right', margin: 0 }}>
+              Investi · 7 mois
             </p>
-            <MiniBarChart data={barData} />
+            <div style={{ width: 180, height: 64 }}>
+              <BarChartWidget labels={barLabels} values={barValues} />
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ── 3-column grid ────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      {/* ── 3-column grid ─────────────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
 
-        {/* Watchlist — client component */}
+        {/* Watchlist */}
         <WatchlistCard />
 
         {/* Positions actives */}
-        <div style={GLASS} className="p-5">
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-xs font-bold uppercase tracking-wider" style={{ color: '#7a9bbf' }}>
+        <div style={{ ...CARD, padding: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-3)', fontFamily: 'var(--font-mono)', margin: 0 }}>
               Positions actives
             </p>
-            <Link href="/portfolio">
-              <ArrowUpRight className="w-3.5 h-3.5" style={{ color: '#02559F' }} />
+            <Link href="/portfolio" style={{ color: 'var(--accent)', display: 'flex' }}>
+              <i className="ti ti-arrow-up-right" style={{ fontSize: 15 }} />
             </Link>
           </div>
 
           {positions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-center">
-              <p className="text-sm" style={{ color: '#7a9bbf' }}>Aucune position ouverte</p>
-              <Link
-                href="/portfolio"
-                className="text-xs mt-2 font-semibold"
-                style={{ color: '#02559F' }}
-              >
-                Commencer →
-              </Link>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '32px 0', textAlign: 'center', gap: 8 }}>
+              <p style={{ fontSize: 13, color: 'var(--text-3)', margin: 0 }}>Aucune position ouverte</p>
+              <Link href="/portfolio" style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', textDecoration: 'none' }}>Commencer →</Link>
             </div>
           ) : (
-            <div className="space-y-0.5">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               {positions.map((p) => (
-                <div
-                  key={p.symbol}
-                  className="flex items-center justify-between px-2.5 py-2.5 rounded-xl hover:bg-white/60 transition-colors"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold"
-                      style={{ background: 'rgba(2,85,159,0.08)', color: '#02559F' }}
-                    >
+                <div key={p.symbol} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderRadius: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--accent-dim)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
                       {p.symbol.charAt(0)}
                     </div>
                     <div>
-                      <p className="text-sm font-semibold" style={{ color: '#0F172A' }}>
-                        {p.symbol}
-                      </p>
-                      <p className="text-xs" style={{ color: '#7a9bbf' }}>
-                        {p.qty.toFixed(4)} × ${p.avgEntry.toFixed(2)}
-                      </p>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', margin: 0 }}>{p.symbol}</p>
+                      <p style={{ fontSize: 11, color: 'var(--text-3)', margin: 0, fontFamily: 'var(--font-mono)' }}>{p.qty.toFixed(4)} × ${p.avgEntry.toFixed(2)}</p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm font-mono font-semibold" style={{ color: '#0F172A' }}>
-                      {p.cur > 0 ? `$${p.cur.toFixed(2)}` : '—'}
-                    </p>
-                    <p
-                      className="text-xs font-mono font-semibold"
-                      style={{ color: p.plPct >= 0 ? '#16a34a' : '#E24B4A' }}
-                    >
-                      {p.cur > 0 ? fmtPct(p.plPct) : '—'}
-                    </p>
+                  <div style={{ textAlign: 'right' }}>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', margin: 0, fontFamily: 'var(--font-mono)' }}>{p.cur > 0 ? `$${p.cur.toFixed(2)}` : '—'}</p>
+                    <p style={{ fontSize: 11, fontWeight: 600, color: p.plPct >= 0 ? 'var(--green)' : 'var(--red)', margin: 0, fontFamily: 'var(--font-mono)' }}>{p.cur > 0 ? fmtPct(p.plPct) : '—'}</p>
                   </div>
                 </div>
               ))}
@@ -317,67 +231,40 @@ export default async function DashboardPage() {
         </div>
 
         {/* Alertes actives */}
-        <div style={GLASS} className="p-5">
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-xs font-bold uppercase tracking-wider" style={{ color: '#7a9bbf' }}>
+        <div style={{ ...CARD, padding: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-3)', fontFamily: 'var(--font-mono)', margin: 0 }}>
               Alertes actives
             </p>
-            <span
-              className="text-xs font-semibold px-2 py-0.5 rounded-full"
-              style={{ background: 'rgba(2,85,159,0.08)', color: '#02559F' }}
-            >
+            <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: 'var(--accent-dim)', color: 'var(--accent)' }}>
               {activeAlerts.length}
             </span>
           </div>
 
           {activeAlerts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-center">
-              <p className="text-sm" style={{ color: '#7a9bbf' }}>Aucune alerte configurée</p>
-              <Link
-                href="/agent"
-                className="text-xs mt-2 font-semibold"
-                style={{ color: '#02559F' }}
-              >
-                Créer via l&apos;agent IA →
-              </Link>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '32px 0', textAlign: 'center', gap: 8 }}>
+              <p style={{ fontSize: 13, color: 'var(--text-3)', margin: 0 }}>Aucune alerte configurée</p>
+              <Link href="/agent" style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', textDecoration: 'none' }}>Créer via l&apos;agent IA →</Link>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {activeAlerts.map((alert) => (
-                <div
-                  key={alert.id}
-                  className="flex items-start gap-3 px-3 py-2.5 rounded-xl"
-                  style={{
-                    background: 'rgba(2,85,159,0.04)',
-                    border: '0.5px solid rgba(2,85,159,0.08)',
-                  }}
-                >
-                  <div
-                    className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
-                    style={{ background: 'rgba(2,85,159,0.1)' }}
-                  >
-                    <AlertTriangle className="w-3 h-3" style={{ color: '#02559F' }} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold" style={{ color: '#0F172A' }}>
+                <div key={alert.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', borderRadius: 10, background: 'var(--accent-dim)', border: '1px solid var(--border)' }}>
+                  <i className="ti ti-bell" style={{ fontSize: 14, color: 'var(--accent)', marginTop: 1, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', margin: 0 }}>
                       {alert.symbol}{' '}
-                      <span style={{ color: '#7a9bbf' }}>
-                        {CONDITION_LABELS[alert.condition] ?? alert.condition}
-                      </span>{' '}
-                      <span style={{ color: '#02559F' }}>{alert.threshold}</span>
+                      <span style={{ color: 'var(--text-3)' }}>{CONDITION_LABELS[alert.condition] ?? alert.condition}</span>{' '}
+                      <span style={{ color: 'var(--accent)' }}>{alert.threshold}</span>
                     </p>
-                    <p className="text-xs truncate mt-0.5" style={{ color: '#7a9bbf' }}>
+                    <p style={{ fontSize: 11, color: 'var(--text-3)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {alert.action}
                     </p>
                   </div>
                   <form action={deleteAlert}>
                     <input type="hidden" name="alertId" value={alert.id} />
-                    <button
-                      type="submit"
-                      className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center hover:bg-red-50 transition-colors mt-0.5"
-                      title="Supprimer l'alerte"
-                    >
-                      <X className="w-3 h-3" style={{ color: '#7a9bbf' }} />
+                    <button type="submit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', display: 'flex', padding: 2, borderRadius: 4 }} title="Supprimer">
+                      <i className="ti ti-x" style={{ fontSize: 13 }} />
                     </button>
                   </form>
                 </div>
@@ -387,43 +274,29 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Transactions récentes ────────────────────────────────────────────── */}
-      <div style={GLASS} className="p-5">
-        <div className="flex items-center justify-between mb-5">
-          <p className="text-xs font-bold uppercase tracking-wider" style={{ color: '#7a9bbf' }}>
+      {/* ── Transactions récentes ──────────────────────────────────────────── */}
+      <div style={{ ...CARD, padding: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-3)', fontFamily: 'var(--font-mono)', margin: 0 }}>
             Transactions récentes
           </p>
-          <Link
-            href="/portfolio"
-            className="text-xs font-semibold flex items-center gap-1"
-            style={{ color: '#02559F' }}
-          >
-            Voir tout <ArrowUpRight className="w-3 h-3" />
+          <Link href="/portfolio" style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+            Voir tout <i className="ti ti-arrow-up-right" style={{ fontSize: 13 }} />
           </Link>
         </div>
 
         {recentTrades.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10">
-            <p className="text-sm" style={{ color: '#7a9bbf' }}>Aucune transaction pour le moment</p>
-            <Link
-              href="/portfolio"
-              className="text-xs mt-2 font-semibold"
-              style={{ color: '#02559F' }}
-            >
-              Créer un portefeuille →
-            </Link>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 0', gap: 8 }}>
+            <p style={{ fontSize: 13, color: 'var(--text-3)', margin: 0 }}>Aucune transaction pour le moment</p>
+            <Link href="/portfolio" style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', textDecoration: 'none' }}>Créer un portefeuille →</Link>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
                   {['Type', 'Symbole', 'Quantité', 'Prix', 'Valeur', 'Date'].map((col) => (
-                    <th
-                      key={col}
-                      className="text-left pb-3 pr-4 text-xs font-semibold whitespace-nowrap"
-                      style={{ color: '#7a9bbf' }}
-                    >
+                    <th key={col} style={{ textAlign: 'left', paddingBottom: 12, paddingRight: 16, fontSize: 11, fontWeight: 700, color: 'var(--text-3)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
                       {col}
                     </th>
                   ))}
@@ -431,63 +304,23 @@ export default async function DashboardPage() {
               </thead>
               <tbody>
                 {recentTrades.map((trade, i) => (
-                  <tr
-                    key={trade.id}
-                    style={{
-                      borderTop: i > 0 ? '0.5px solid rgba(2,85,159,0.07)' : 'none',
-                    }}
-                  >
-                    <td className="py-3 pr-4">
-                      <span
-                        className="px-2 py-0.5 rounded-md text-xs font-bold"
-                        style={{
-                          background:
-                            trade.type === 'BUY'
-                              ? 'rgba(2,85,159,0.08)'
-                              : 'rgba(226,75,74,0.08)',
-                          color: trade.type === 'BUY' ? '#02559F' : '#E24B4A',
-                        }}
-                      >
+                  <tr key={trade.id} style={{ borderTop: i > 0 ? `1px solid var(--border)` : 'none' }}>
+                    <td style={{ padding: '12px 16px 12px 0' }}>
+                      <span style={{ padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, background: trade.type === 'BUY' ? 'var(--accent-dim)' : 'rgba(240,85,85,0.12)', color: trade.type === 'BUY' ? 'var(--accent)' : 'var(--red)' }}>
                         {trade.type === 'BUY' ? 'ACHAT' : 'VENTE'}
                       </span>
                     </td>
-                    <td className="py-3 pr-4">
-                      <p className="text-sm font-semibold" style={{ color: '#0F172A' }}>
-                        {trade.symbol}
-                      </p>
-                      <p className="text-xs" style={{ color: '#7a9bbf' }}>
-                        {trade.portfolio.name}
-                      </p>
+                    <td style={{ padding: '12px 16px 12px 0' }}>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', margin: 0 }}>{trade.symbol}</p>
+                      <p style={{ fontSize: 11, color: 'var(--text-3)', margin: 0 }}>{trade.portfolio.name}</p>
                     </td>
-                    <td
-                      className="py-3 pr-4 text-sm font-mono"
-                      style={{ color: '#0F172A' }}
-                    >
-                      {trade.quantity.toFixed(4)}
-                    </td>
-                    <td
-                      className="py-3 pr-4 text-sm font-mono"
-                      style={{ color: '#0F172A' }}
-                    >
-                      ${trade.price.toFixed(2)}
-                    </td>
-                    <td
-                      className="py-3 pr-4 text-sm font-mono font-semibold"
-                      style={{ color: '#013B72' }}
-                    >
-                      ${(trade.price * trade.quantity).toFixed(2)}
-                    </td>
-                    <td className="py-3 whitespace-nowrap">
-                      <div
-                        className="flex items-center gap-1 text-xs"
-                        style={{ color: '#7a9bbf' }}
-                      >
-                        <Clock className="w-3 h-3 flex-shrink-0" />
-                        {new Date(trade.executedAt).toLocaleDateString('fr-FR', {
-                          day: '2-digit',
-                          month: 'short',
-                          year: 'numeric',
-                        })}
+                    <td style={{ padding: '12px 16px 12px 0', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>{trade.quantity.toFixed(4)}</td>
+                    <td style={{ padding: '12px 16px 12px 0', fontSize: 13, color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>${trade.price.toFixed(2)}</td>
+                    <td style={{ padding: '12px 16px 12px 0', fontSize: 13, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--font-mono)' }}>${(trade.price * trade.quantity).toFixed(2)}</td>
+                    <td style={{ padding: '12px 0', whiteSpace: 'nowrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
+                        <i className="ti ti-clock" style={{ fontSize: 12 }} />
+                        {new Date(trade.executedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })}
                       </div>
                     </td>
                   </tr>
@@ -497,6 +330,12 @@ export default async function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* Spacer pour le bouton flottant */}
+      <div style={{ height: 72 }} />
+
+      {/* Chatbox flottante Agent Charly */}
+      <FloatingChat />
     </div>
   );
 }
