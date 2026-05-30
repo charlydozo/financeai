@@ -2,8 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import type { CSSProperties } from 'react';
 
 const SYMBOLS = ['AAPL', 'TSLA', 'MSFT', 'NVDA', 'GOOGL'];
+
+const GLASS: CSSProperties = {
+  background: 'rgba(255,255,255,0.62)',
+  border: '0.5px solid rgba(255,255,255,0.9)',
+  borderRadius: '20px',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.8), 0 1px 3px rgba(2,85,159,0.06)',
+};
 
 interface Quote {
   c: number;
@@ -19,7 +27,10 @@ export function WatchlistCard() {
     const load = () =>
       fetch(`/api/market/batch-quotes?symbols=${SYMBOLS.join(',')}`)
         .then((r) => r.json())
-        .then((data) => { setQuotes(data); setLoading(false); })
+        .then((data) => {
+          setQuotes(data);
+          setLoading(false);
+        })
         .catch(() => setLoading(false));
 
     load();
@@ -28,19 +39,23 @@ export function WatchlistCard() {
   }, []);
 
   return (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: 20 }}>
-      <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--text-3)', marginBottom: 16, fontFamily: 'var(--font-space-mono)' }}>
+    <div style={GLASS} className="p-5">
+      <p className="text-xs font-bold uppercase tracking-wider mb-4" style={{ color: '#7a9bbf' }}>
         Watchlist
       </p>
 
       {loading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="space-y-3">
           {SYMBOLS.map((s) => (
-            <div key={s} style={{ height: 40, borderRadius: 10, background: 'var(--accent-dim)', animation: 'pulse 1.5s ease-in-out infinite' }} />
+            <div
+              key={s}
+              className="h-10 rounded-xl animate-pulse"
+              style={{ background: 'rgba(2,85,159,0.06)' }}
+            />
           ))}
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div className="space-y-0.5">
           {SYMBOLS.map((symbol) => {
             const q = quotes[symbol];
             const up = (q?.dp ?? 0) >= 0;
@@ -48,21 +63,27 @@ export function WatchlistCard() {
               <Link
                 key={symbol}
                 href="/market"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderRadius: 10, textDecoration: 'none', transition: 'background 0.15s' }}
-                onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.background = 'var(--accent-dim)'}
-                onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                className="flex items-center justify-between px-2.5 py-2.5 rounded-xl hover:bg-white/70 transition-colors group"
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--accent-dim)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold"
+                    style={{ background: 'rgba(2,85,159,0.08)', color: '#02559F' }}
+                  >
                     {symbol.charAt(0)}
                   </div>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{symbol}</span>
+                  <span className="text-sm font-semibold" style={{ color: '#0F172A' }}>
+                    {symbol}
+                  </span>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', margin: 0, fontFamily: 'var(--font-space-mono)' }}>
+                <div className="text-right">
+                  <p className="text-sm font-mono font-semibold" style={{ color: '#0F172A' }}>
                     {q?.c ? `$${q.c.toFixed(2)}` : '—'}
                   </p>
-                  <p style={{ fontSize: 11, color: up ? 'var(--green)' : 'var(--red)', margin: 0, fontFamily: 'var(--font-space-mono)' }}>
+                  <p
+                    className="text-xs font-mono"
+                    style={{ color: up ? '#16a34a' : '#E24B4A' }}
+                  >
                     {q?.dp != null ? `${up ? '+' : ''}${q.dp.toFixed(2)}%` : '—'}
                   </p>
                 </div>

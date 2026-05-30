@@ -1,21 +1,14 @@
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
-import { FloatingChat } from '@/components/chat/FloatingChat';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <>
+    <div className="flex h-screen bg-gray-950 overflow-hidden">
       <Sidebar />
-      <Header />
-      <main style={{
-        marginLeft: 'var(--sidebar-w)',
-        paddingTop: 'var(--topbar-h)',
-        minHeight: '100vh',
-        background: 'var(--bg)',
-      }}>
-        {children}
-      </main>
-      <FloatingChat />
-    </>
+      <div className="flex-1 flex flex-col min-w-0">
+        <Header />
+        <main className="flex-1 overflow-y-auto">{children}</main>
+      </div>
+    </div>
   );
 }
